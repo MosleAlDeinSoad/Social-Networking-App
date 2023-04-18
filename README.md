@@ -1,1 +1,1 @@
-# Social Networking System
+# Social Networking App

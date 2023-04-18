@@ -1,63 +1,74 @@
 import User from "../models/User.js";
 
-/* READ */
+// read
+
 export const getUser = async (req, res) => {
-  try {
-    const { id } = req.params;
-    const user = await User.findById(id);
-    res.status(200).json(user);
-  } catch (err) {
-    res.status(404).json({ message: err.message });
-  }
+    try {
+        const { id } = req.params;
+        const user = await User.findById(id);
+        res.status(200).json(user);
+    } catch (err) {
+        console.error(err)
+        res.status(404).json({ message: err.message });
+    }
 };
 
 export const getUserFriends = async (req, res) => {
-  try {
-    const { id } = req.params;
-    const user = await User.findById(id);
-
-    const friends = await Promise.all(
-      user.friends.map((id) => User.findById(id))
-    );
-    const formattedFriends = friends.map(
-      ({ _id, firstName, lastName, occupation, location, picturePath }) => {
-        return { _id, firstName, lastName, occupation, location, picturePath };
-      }
-    );
-    res.status(200).json(formattedFriends);
-  } catch (err) {
-    res.status(404).json({ message: err.message });
-  }
+    try {
+        const { id } = req.params;
+        const user = await User.findById(id).select('+friends').populate('friends','firstName lastName picturePath location')
+        res.status(200).json(user.friends);
+    } catch (err) {
+        console.error(err)
+        res.status(404).json({ message: err.message });
+    }
 };
 
-/* UPDATE */
-export const addRemoveFriend = async (req, res) => {
-  try {
-    const { id, friendId } = req.params;
-    const user = await User.findById(id);
-    const friend = await User.findById(friendId);
-
-    if (user.friends.includes(friendId)) {
-      user.friends = user.friends.filter((id) => id !== friendId);
-      friend.friends = friend.friends.filter((id) => id !== id);
-    } else {
-      user.friends.push(friendId);
-      friend.friends.push(id);
+export const getNonFriends = async (req, res) => {
+    try {
+        const { id } = req.params;
+        const user = await User.findById(id).select('+friends')
+        const others = await User.find({
+            $and: [
+                { _id: { $nin: user.friends } },
+                { _id: { $ne: user._id } }
+            ]
+        }).select(['firstName', 'lastName', 'picturePath', 'location'])
+        res.status(200).json(others);
+    } catch (err) {
+        console.error(err)
+        res.status(404).json({ message: err.message });
     }
-    await user.save();
-    await friend.save();
+};
 
-    const friends = await Promise.all(
-      user.friends.map((id) => User.findById(id))
-    );
-    const formattedFriends = friends.map(
-      ({ _id, firstName, lastName, occupation, location, picturePath }) => {
-        return { _id, firstName, lastName, occupation, location, picturePath };
-      }
-    );
+// UPDATE
+export const addRemoveFriend = async (req, res) => {
+    try {
+        const { id, friendId } = req.params;
+        if(id==friendId)
+            return res.status(400).json({message:"Can't add ownself as friend"})
 
-    res.status(200).json(formattedFriends);
-  } catch (err) {
-    res.status(404).json({ message: err.message });
-  }
+        const self = await User.findById(id).select('+friends')
+        const other = await User.findById(friendId).select('+friends')
+
+        if (self.friends.some(e=>e.equals(friendId))) { //remove
+            self.friends = self.friends.filter((_id) => _id != friendId);
+            other.friends = other.friends.filter((_id) => _id != id);
+            --self.friendCount
+            --other.friendCount
+        } else {
+            self.friends.push(friendId);
+            other.friends.push(id)
+            ++self.friendCount
+            ++other.friendCount
+        }
+
+        await self.save();
+        await other.save();
+        await self.populate('friends','firstName lastName picturePath location')
+        res.status(200).json(self.friends);
+    } catch (err) {
+        console.error(err)
+        res.status(404).json({ message: err.message });
+    }
 };
